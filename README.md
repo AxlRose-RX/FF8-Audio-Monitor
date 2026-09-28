@@ -1,8 +1,8 @@
-# EchoS Audio Monitor
+# FF8 Audio Monitor
 
-![EchoS Audio Monitor running over Final Fantasy VIII, with the in-game overlay on the right](screenshots/echos_audio_monitor.png)
+![FF8 Audio Monitor running over Final Fantasy VIII, with the in-game overlay on the right](screenshots/echos_audio_monitor.png)
 
-EchoS Audio Monitor shows you, live, every audio file Final Fantasy VIII asks for while you play: music, sound effects, voices, ambient sounds and movie audio. It's made mainly for people working on audio mods, like replacing music tracks, SFX or voices (it was built for the EchoS project), so you always know which file is playing and which one you need to replace.
+FF8 Audio Monitor shows you, live, every audio file Final Fantasy VIII asks for while you play: music, sound effects, voices, ambient sounds and movie audio. It's made mainly for people working on audio mods, like replacing music tracks, SFX or voices (it was built for the EchoS project), so you always know which file is playing and which one you need to replace.
 
 FFNx already writes all of this to `FFNx.log`, but it's buried in everything else FFNx logs, the file grows fast, and you end up reopening and searching it every time you want to check something. This app does all of that for you. It finds the running game and its log on its own, keeps only the audio lines, skips the repeats and gives each type its own color. You can hide the types you don't need, turn on a small overlay that floats over the game so you don't have to Alt+Tab, copy lines, or open a saved log to see every file it used.
 
@@ -12,7 +12,7 @@ It has only been tested with FFNx and the Junction VIII mod manager, on Final Fa
 
 ## Download
 
-Get `echos_audio_monitor.zip` from the [latest release](https://github.com/AxlRose-RX/EchoS-Audio-Monitor/releases/latest), unzip it anywhere and run `echos_audio_monitor.exe`. Keep the `_internal` folder next to the .exe.
+Get `echos_audio_monitor.zip` from the [latest release](https://github.com/AxlRose-RX/FF8-Audio-Monitor/releases/latest), unzip it anywhere and run `echos_audio_monitor.exe`. Keep the `_internal` folder next to the .exe.
 
 ## FFNx settings
 

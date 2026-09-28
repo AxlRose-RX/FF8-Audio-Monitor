@@ -1,8 +1,8 @@
-name: EchoS Audio Monitor
+name: FF8 Audio Monitor
 
 run-name: "Build (manual)"
 
-# Never builds on push. Actions tab -> EchoS Audio Monitor -> Run workflow.
+# Never builds on push. Actions tab -> FF8 Audio Monitor -> Run workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 env:
-  _RELEASE_NAME: "EchoS Audio Monitor"
+  _RELEASE_NAME: "FF8 Audio Monitor"
   _APP: "echos_audio_monitor"
 
 jobs:

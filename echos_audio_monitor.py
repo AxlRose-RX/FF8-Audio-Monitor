@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-EchoS Audio Monitor  -  live view of the .ogg files FF8 (with FFNx) plays.
+FF8 Audio Monitor  -  live view of the .ogg files FF8 (with FFNx) plays.
 
 Click "Attach to FF8". The app finds the running game, locates the FFNx.log it
 writes next to the game exe, and shows each music / sfx / voice / ambient .ogg
@@ -36,7 +36,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 
 APP_VERSION = "2026.0927"   # release version (YYYY.MMDD); the GitHub build reads it from here
-APP_TITLE = f"EchoS Audio Monitor v{APP_VERSION} - by AxlRose"
+APP_TITLE = f"FF8 Audio Monitor v{APP_VERSION} - by AxlRose"
 LOG_NAME  = "FFNx.log"
 
 # The game-relative audio path has no spaces, so match from the category folder.
@@ -202,7 +202,7 @@ class Overlay(tk.Toplevel):
         # top bar = move handle
         bar = tk.Frame(self, bg="#2a2f3a", cursor="fleur")
         bar.pack(fill="x")
-        tk.Label(bar, text="EchoS  (drag to move)", bg="#2a2f3a", fg="#c8ced9",
+        tk.Label(bar, text="Audio Monitor  (drag to move)", bg="#2a2f3a", fg="#c8ced9",
                  font=("Segoe UI", 8)).pack(side="left", padx=6)
 
         # bottom bar holds a resize grip on the right
