@@ -35,7 +35,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog
 
-APP_VERSION = "2026.0927"   # release version (YYYY.MMDD); the GitHub build reads it from here
+APP_VERSION = "2026.1001"   # release version (YYYY.MMDD); the GitHub build reads it from here
 APP_TITLE = f"FF8 Audio Monitor v{APP_VERSION} - by AxlRose"
 LOG_NAME  = "FFNx.log"
 
@@ -76,22 +76,33 @@ def normalize(full, folder):
     return ("voice" if p[:-4].endswith("_va") else "music"), p
 
 
+# The game's own exe: ff8.exe, or ff8_en.exe (and the other language exes) on the
+# 2013 Steam release. Not other tools that happen to be named ff8_*.exe.
+GAME_EXE_RE = re.compile(r'^ff8(_[a-z]{2})?\.exe$', re.I)
+
+
 def find_game_log():
     """Return (label, log_path, pid) for a running FF8, or (None, None, None)."""
     try:
         import psutil
     except ImportError:
         return None, None, None
+    first = None
     for pr in psutil.process_iter(["name", "pid", "exe"]):
         try:
-            name = (pr.info.get("name") or "").lower()
-            if name.startswith("ff8") and name.endswith(".exe") and pr.info.get("exe"):
-                folder = os.path.dirname(pr.info["exe"])
-                return (f"{pr.info['name']} (PID {pr.info['pid']})",
-                        os.path.join(folder, LOG_NAME), pr.info["pid"])
+            name = pr.info.get("name") or ""
+            exe = pr.info.get("exe")
+            if not exe or not GAME_EXE_RE.match(name):
+                continue
+            log_path = os.path.join(os.path.dirname(exe), LOG_NAME)
+            found = (f"{name} (PID {pr.info['pid']})", log_path, pr.info["pid"])
+            if os.path.exists(log_path):
+                return found            # the game, with its FFNx.log next to it
+            if first is None:
+                first = found           # fallback: the log may not exist yet
         except Exception:
             continue
-    return None, None, None
+    return first if first else (None, None, None)
 
 
 class Tailer(threading.Thread):
@@ -125,7 +136,7 @@ class Tailer(threading.Thread):
         while not self.stop:
             line = fh.readline()
             if line:
-                self._handle(line)
+                self._parse_line(line)
                 continue
             size = self._size()
             if size < last_size:                # game restarted -> log truncated
@@ -147,7 +158,8 @@ class Tailer(threading.Thread):
         except OSError:
             return 0
 
-    def _handle(self, line):
+    # not named _handle: Python 3.13 uses Thread._handle internally, which hid this method
+    def _parse_line(self, line):
         mv = MOVIE_RE.search(line)
         if mv:                                               # prepare_movie: the preload
             p = mv.group(1).replace("\\", "/")
