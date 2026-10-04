@@ -7,6 +7,10 @@ writes next to the game exe, and shows each music / sfx / voice / ambient .ogg
 as it is requested or played, live. Tick the category boxes to filter. Turn on
 the in-game overlay to float the latest lines over the game.
 
+Battle voice lines (voice/_battle/...) show every name FFNx tried for that one
+moment on a single row, in the order it tried them (most specific first):
+    voice/_battle/squall/cmd_draw_0007.ogg > cmd_draw > cmd_06_0007 > cmd_06
+
 Enable these in FFNx.toml so FFNx logs the events:
     trace_music = true
     trace_sfx = true
@@ -35,7 +39,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog
 
-APP_VERSION = "2026.1001"   # release version (YYYY.MMDD); the GitHub build reads it from here
+APP_VERSION = "2026.1003"   # release version (YYYY.MMDD); the GitHub build reads it from here
 APP_TITLE = f"FF8 Audio Monitor v{APP_VERSION} - by AxlRose"
 LOG_NAME  = "FFNx.log"
 
@@ -46,6 +50,8 @@ MOVIE_RE = re.compile(r'prepare_movie\s+(.+?\.(?:avi|webm|mp4|mov|bik|bk2|ogv))'
 FRAME_RE = re.compile(r'^\[(\d+)\]')
 CATS = ("music", "sfx", "voice", "ambient")
 FILTER_CATS = CATS + ("movie",)      # categories that get a Show: checkbox
+# battle voices: FFNx tries a chain of names for one action (most specific first)
+BATTLE_PREFIX = "voice/_battle/"
 
 # alternating row background + per-category text colour
 BG_A, BG_B = "#ffffff", "#eef1f5"
@@ -74,6 +80,26 @@ def normalize(full, folder):
         return folder, p
     # movies/ = FMV audio: the "_va" file is the voice layer, else music layer
     return ("voice" if p[:-4].endswith("_va") else "music"), p
+
+
+def is_battle_voice(cat, path):
+    """True for battle voice lines, where FFNx tries a chain of names in one go."""
+    return cat == "voice" and path.lower().startswith(BATTLE_PREFIX)
+
+
+def chain_text(paths):
+    """Battle voice names tried in one frame -> one row: the first full path, then
+    each fallback name in the order FFNx tried it. Folder and .ogg are left off
+    when the fallback is in the same folder as the first one."""
+    folder = paths[0].rsplit("/", 1)[0].lower() + "/"
+    parts = [paths[0]]
+    for p in paths[1:]:
+        rest = p[len(folder):]
+        if p.lower().startswith(folder) and "/" not in rest:
+            parts.append(rest[:-4])                  # same folder: just the name
+        else:
+            parts.append(p)                          # other folder: full path
+    return " > ".join(parts)
 
 
 # The game's own exe: ff8.exe, or ff8_en.exe (and the other language exes) on the
@@ -115,6 +141,7 @@ class Tailer(threading.Thread):
         self.from_start = from_start
         self.stop = False
         self._last = None  # (cat, path, frame)
+        self._chain = None  # battle voice names on the current row, or None
         self._last_movie = None  # last prepared movie file, for the play line
 
     def run(self):
@@ -146,6 +173,7 @@ class Tailer(threading.Thread):
                 except OSError:
                     break
                 self._last = None
+                self._chain = None
                 self._last_movie = None
                 self.q.put(("mark", "", "-- game restarted --"))
             last_size = size
@@ -187,9 +215,19 @@ class Tailer(threading.Thread):
                 continue
             if self._last and self._last[0] == cat and self._last[1] == path:
                 continue                                     # exact repeat -> drop
-            if self._last and self._last[0] == cat and self._last[2] == frame:
+            same_frame = bool(self._last) and self._last[0] == cat and self._last[2] == frame
+            if is_battle_voice(cat, path):                   # battle: keep every name tried
+                if same_frame and self._chain:
+                    if path not in self._chain:              # same name twice -> show once
+                        self._chain.append(path)
+                        self.q.put(("replace", cat, chain_text(self._chain)))
+                else:
+                    self._chain = [path]                     # first name -> new row
+                    self.q.put(("add", cat, path))
+            elif same_frame and not self._chain:
                 self.q.put(("replace", cat, path))           # same-frame fallback -> collapse
             else:
+                self._chain = None
                 self.q.put(("add", cat, path))
             self._last = (cat, path, frame)
 
