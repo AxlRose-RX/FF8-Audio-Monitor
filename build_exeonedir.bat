@@ -13,6 +13,33 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem --- Check the source files are all here ---
+rem PyInstaller bundles blitzball_window.py and theme.py on its own (the main .py
+rem imports them), but if one is missing it still builds and the .exe won't start.
+echo ========================================
+echo Checking source files...
+echo ========================================
+set "MISSING=0"
+for %%F in ("echos_audio_monitor.py" "blitzball_window.py" "theme.py" "icon.ico") do (
+  if exist "%%~F" (
+    echo   [OK] %%~F
+  ) else (
+    echo   [MISSING] %%~F
+    set "MISSING=1"
+  )
+)
+if "%MISSING%"=="1" (
+  color 0C
+  echo.
+  echo ========================================
+  echo Build stopped: put the missing files
+  echo next to this .bat and run it again.
+  echo ========================================
+  pause
+  exit /b 1
+)
+echo.
+
 rem --- Clean up previous build artifacts ---
 echo ========================================
 echo Cleaning up previous build artifacts...

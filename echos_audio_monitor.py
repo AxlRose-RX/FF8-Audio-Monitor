@@ -26,6 +26,13 @@ Note: FFNx writes these audio events only to its log file, and flushes every
 line, so tailing the log is real-time. The app does this for you in the
 background; you never open the log yourself.
 
+The Blitzball button opens a window of its own for the Blitzball mini game
+(the Blitzball FF8 mod), which plays its own sounds and writes them to its own
+log: see blitzball_window.py. Nothing in this window changes for it.
+
+Dark mode (on by default) is one choice for both windows, remembered between
+runs: see theme.py.
+
     pip install psutil        (lets the app auto-find the game; optional)
     python echos_audio_monitor.py
 """
@@ -39,7 +46,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog
 
-APP_VERSION = "2026.1003"   # release version (YYYY.MMDD); the GitHub build reads it from here
+import blitzball_window   # the Blitzball mini game's own window (its own log; kept apart from FFNx's)
+import theme              # the app's look: dark (the default) or light, the same in every window
+
+APP_VERSION = "2026.1016"   # release version (YYYY.MMDD); the GitHub build reads it from here
 APP_TITLE = f"FF8 Audio Monitor v{APP_VERSION} - by AxlRose"
 LOG_NAME  = "FFNx.log"
 
@@ -53,12 +63,13 @@ FILTER_CATS = CATS + ("movie",)      # categories that get a Show: checkbox
 # battle voices: FFNx tries a chain of names for one action (most specific first)
 BATTLE_PREFIX = "voice/_battle/"
 
-# alternating row background + per-category text colour
+# alternating row background + per-category text colour (light; dark mode takes theme.py's dark colours)
 BG_A, BG_B = "#ffffff", "#eef1f5"
 MOVIE_FG = "#c9770a"
 CAT_FG = {"music": "#1f6feb", "sfx": "#1a7f37", "voice": "#8250df",
           "ambient": "#0e7490", "movie": MOVIE_FG}
 MARK_FG = "#b0402a"
+HINT_FG = "#666"
 
 OVERLAY_LINES = 20
 
@@ -328,9 +339,13 @@ class App(tk.Tk):
 
         self.enabled = {c: tk.BooleanVar(value=True) for c in FILTER_CATS}
         self.live_overlay = tk.BooleanVar(value=False)
+        self.dark = tk.BooleanVar(value=theme.is_dark())
+        self.row_bg, self.cat_fg, self.mark_fg = (BG_A, BG_B), CAT_FG, MARK_FG
 
         self._build_ui()
         self.overlay = Overlay(self)
+        self._apply_look()
+        theme.listen(self._on_look)         # (the Blitzball window's Dark mode box switches this one too)
         self._hint()
 
         self.after(80, self._drain)
@@ -351,6 +366,7 @@ class App(tk.Tk):
         self.status = tk.StringVar(value="Not attached.")
         ttk.Label(top, textvariable=self.status).pack(side="left", padx=10)
         ttk.Button(top, text="Locate FFNx.log", command=self._locate).pack(side="right")
+        ttk.Button(top, text="Blitzball", command=self._blitzball).pack(side="right", padx=(0, 8))
 
         row = ttk.Frame(self, padding=(8, 0))
         row.pack(fill="x")
@@ -361,6 +377,8 @@ class App(tk.Tk):
         ttk.Button(row, text="Clear", width=6, command=self._clear).pack(side="right")
         ttk.Checkbutton(row, text="In-game overlay", variable=self.live_overlay,
                         command=self._toggle_overlay).pack(side="right", padx=8)
+        ttk.Checkbutton(row, text="Dark mode", variable=self.dark,
+                        command=self._toggle_dark).pack(side="right", padx=(0, 6))
 
         mid = ttk.Frame(self, padding=8)
         mid.pack(fill="both", expand=True)
@@ -381,10 +399,62 @@ class App(tk.Tk):
         self._menu.add_command(label="Copy", command=self._copy_selection)
         self._menu.add_command(label="Select all", command=self._select_all)
 
-        ttk.Label(self, padding=(8, 0),
-                  text="Needs trace_music, trace_sfx, trace_voice, trace_ambient, trace_movies = true, "
-                       "plus use_external_sfx and use_external_music = true (FFNx.toml or mod.xml).",
-                  foreground="#666").pack(fill="x")
+        self.hint = ttk.Label(self, padding=(8, 0),
+                              text="Needs trace_music, trace_sfx, trace_voice, trace_ambient, trace_movies = true, "
+                                   "plus use_external_sfx and use_external_music = true (FFNx.toml or mod.xml).",
+                              foreground=HINT_FG)
+        self.hint.pack(fill="x")
+        # the light look is the window's own (as it always was): kept here for switching back from dark
+        lb = ("bg", "fg", "selectbackground", "selectforeground", "highlightbackground", "highlightcolor")
+        mn = ("bg", "fg", "activebackground", "activeforeground")
+        self._light = {"listbox": {k: self.listbox.cget(k) for k in lb},
+                       "menu": {k: self._menu.cget(k) for k in mn}, "bg": self.cget("bg")}
+
+    # ---------------------------------------------------------------- the look (theme.py)
+    def _toggle_dark(self):
+        theme.set_dark(self.dark.get())     # every open window follows (this one through _on_look)
+
+    def _on_look(self, dark):
+        self.dark.set(dark)
+        self._apply_look()
+
+    def _apply_look(self):
+        """Dark: theme.py's dark colours on everything here. Light: the window as it always looked."""
+        dark = self.dark.get()
+        if dark:
+            P = theme.palette(True)
+            theme.style_common(ttk.Style(self), "Main", P)
+            self.row_bg, self.cat_fg, self.mark_fg = (P["row_a"], P["row_b"]), {c: P[c] for c in CAT_FG}, P["mark"]
+            lb = {"bg": P["row_a"], "fg": P["fg"], "selectbackground": P["sel"], "selectforeground": P["sel_fg"],
+                  "highlightbackground": P["border"], "highlightcolor": P["thumb_hover"]}
+            mn = {"bg": P["field"], "fg": P["fg"], "activebackground": P["sel"], "activeforeground": P["sel_fg"]}
+            bg, hint = P["bg"], P["muted"]
+        else:
+            self.row_bg, self.cat_fg, self.mark_fg = (BG_A, BG_B), CAT_FG, MARK_FG
+            lb, mn, bg, hint = self._light["listbox"], self._light["menu"], self._light["bg"], HINT_FG
+        self._restyle(self, dark)
+        self.listbox.configure(**lb)
+        self._menu.configure(**mn)
+        self.configure(bg=bg)
+        self.hint.configure(foreground=hint)
+        for i, cat in enumerate(self.row_cats):     # the rows already there
+            self.listbox.itemconfig(i, bg=self.row_bg[i % 2], fg=self._fg(cat))
+        theme.title_bar(self, dark)
+
+    def _restyle(self, w, dark):
+        """This window's ttk widgets: the dark styles (Main.*), or their own ones back (light)."""
+        for c in w.winfo_children():
+            if isinstance(c, tk.Toplevel):
+                continue                    # the overlay and the Blitzball window have their own looks
+            cls = c.winfo_class()
+            if cls in ("TFrame", "TLabel", "TButton", "TCheckbutton"):
+                c.configure(style=("Main." + cls) if dark else "")
+            elif cls == "TScrollbar":
+                c.configure(style="Main.Vertical.TScrollbar" if dark else "")
+            self._restyle(c, dark)
+
+    def _fg(self, cat):
+        return self.mark_fg if cat == "mark" else self.cat_fg.get(cat, self.listbox.cget("fg"))
 
     def _hint(self):
         for msg in (
@@ -401,6 +471,8 @@ class App(tk.Tk):
             "    use_external_music = true",
             " ",
             "Then launch FF8 with Junction VIII/FFNx and click Attach to FF8.",
+            " ",
+            "Blitzball mini game (Blitzball FF8 mod): click Blitzball, it has its own window.",
         ):
             self._add_mark(msg)
 
@@ -504,7 +576,7 @@ class App(tk.Tk):
     def _row_add(self, cat, path):
         i = self.listbox.size()
         self.listbox.insert("end", path)
-        self.listbox.itemconfig(i, bg=(BG_A if i % 2 == 0 else BG_B), fg=CAT_FG.get(cat, "#000"))
+        self.listbox.itemconfig(i, bg=self.row_bg[i % 2], fg=self._fg(cat))
         self.row_cats.append(cat)
         if self.live_overlay.get():
             self.listbox.see("end")
@@ -515,7 +587,7 @@ class App(tk.Tk):
             return self._row_add(cat, path)
         self.listbox.delete(i)
         self.listbox.insert(i, path)
-        self.listbox.itemconfig(i, bg=(BG_A if i % 2 == 0 else BG_B), fg=CAT_FG.get(cat, "#000"))
+        self.listbox.itemconfig(i, bg=self.row_bg[i % 2], fg=self._fg(cat))
         self.row_cats[-1] = cat
         if self.live_overlay.get():
             self.listbox.see("end")
@@ -523,7 +595,7 @@ class App(tk.Tk):
     def _row_add_mark(self, text):
         i = self.listbox.size()
         self.listbox.insert("end", text)
-        self.listbox.itemconfig(i, bg=(BG_A if i % 2 == 0 else BG_B), fg=MARK_FG)
+        self.listbox.itemconfig(i, bg=self.row_bg[i % 2], fg=self.mark_fg)
         self.row_cats.append("mark")
         if self.live_overlay.get():
             self.listbox.see("end")
@@ -567,7 +639,14 @@ class App(tk.Tk):
         self.master_events.append(("mark", text))
         self._row_add_mark(text)
 
+    def _blitzball(self):
+        # the Blitzball mini game's sounds: a window of its own (blitzball_window.py), same icon
+        base = Path(getattr(sys, "_MEIPASS", get_exe_dir()))
+        icon = base / "icon.ico"
+        blitzball_window.open_window(self, find_game=find_game_log, icon=str(icon) if icon.exists() else None)
+
     def _close(self):
+        theme.forget(self._on_look)
         if self.tailer:
             self.tailer.stop = True
         self.destroy()
