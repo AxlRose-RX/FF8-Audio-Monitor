@@ -8,9 +8,10 @@ FFNx.log never has them. When its trace options are on, Blitzball writes every s
 BlitzballFF8\\BlitzballFF8.log in the game folder (and keeps the run before as BlitzballFF8.prev.log). This window
 reads that log.
 
-Turn the options on in Junction VIII: Configure Mod, Blitzball FF8:
-    Log Blitzball's music, Log Blitzball's sound effects, Log Blitzball's ambience
-(BlitzballFF8.ini [Trace] TraceMusic, TraceSFX, TraceAmbient). No FFNx.toml settings are needed for them.
+Nothing to turn on: the app's watcher (ffnx_setup.py) switches Blitzball's sound logging on inside the running game
+(Blitzball FF8 test 80 and newer), as it does FFNx's; its settings file isn't changed. Without the app they're
+Junction VIII's Configure Mod options for Blitzball FF8: Log Blitzball's music, Log Blitzball's sound effects, Log
+Blitzball's ambience (BlitzballFF8.ini [Trace] TraceMusic, TraceSFX, TraceAmbient). No FFNx.toml settings are needed.
 
 The lines it reads (Blitzball FF8 test 78 and later), one a sound:
     Blitzball <music|sfx|ambient>: <file> | <what happened> | <when it plays>
@@ -406,9 +407,9 @@ class BlitzballWindow(tk.Toplevel):
             self.check.bind(ev, lambda e: self.after_idle(self._restripe))
 
         hint = ttk.Label(self, padding=(12, 0, 12, 8), wraplength=1000, justify="left", style="Blitz.Muted.TLabel",
-                         text="To see Blitzball's sounds here: in Junction VIII, Configure Mod, Blitzball FF8, turn on "
-                              "\"Log Blitzball's music\", \"Log Blitzball's sound effects\" and \"Log Blitzball's ambience\". "
-                              "Then play. No FFNx.toml settings are needed for Blitzball. Red: a sound still missing. "
+                         text="Nothing to turn on: the app switches Blitzball's sound logging on inside the game by "
+                              "itself (Blitzball test 80 and newer; its settings aren't changed). Just play. Red: a sound "
+                              "still missing. "
                               "Yellow: an exact one you can add (optional: the general one plays meanwhile). Rest the mouse "
                               "on a line to see every name that sound can have. New files play the next time Blitzball opens.")
         hint.pack(fill="x")

@@ -2,25 +2,23 @@
 """
 FF8 Audio Monitor  -  live view of the .ogg files FF8 (with FFNx) plays.
 
-Click "Attach to FF8". The app finds the running game, locates the FFNx.log it
-writes next to the game exe, and shows each music / sfx / voice / ambient .ogg
-as it is requested or played, live. Tick the category boxes to filter. Turn on
-the in-game overlay to float the latest lines over the game.
+Open it, then start the game: nothing to press. The app notices the game
+(FF8 2000, the 2013 Steam release or the Remaster, with FFNx), switches FFNx's
+sound logging on inside it (trace_music, trace_sfx, trace_voice, trace_ambient,
+trace_movies; and, as the game starts, use_external_music and use_external_sfx
+when they're off), in the game's memory only: FFNx.toml is never changed. Then
+it shows each music / sfx / voice / ambient .ogg as it is requested or played,
+live, from the FFNx.log the game writes. See ffnx_setup.py. Tick the category
+boxes to filter. Turn on the in-game overlay to float the latest lines over the
+game.
 
 Battle voice lines (voice/_battle/...) show every name FFNx tried for that one
 moment on a single row, in the order it tried them (most specific first):
     voice/_battle/squall/cmd_draw_0007.ogg > cmd_draw > cmd_06_0007 > cmd_06
 
-Enable these in FFNx.toml so FFNx logs the events:
-    trace_music = true
-    trace_sfx = true
-    trace_voice = true
-    trace_ambient = true
-    trace_movies = true
-
-For sfx and music you also need (set them in FFNx.toml or in the mod.xml):
-    use_external_sfx = true
-    use_external_music = true
+With use_external_music and use_external_sfx on, FFNx plays music and sound
+effects only from .ogg files: one with no .ogg is silent (FFNx has no fallback
+to the game's own sounds). Mods that bring their own .ogg files set them anyway.
 
 Note: FFNx writes these audio events only to its log file, and flushes every
 line, so tailing the log is real-time. The app does this for you in the
@@ -33,7 +31,7 @@ log: see blitzball_window.py. Nothing in this window changes for it.
 Dark mode (on by default) is one choice for both windows, remembered between
 runs: see theme.py.
 
-    pip install psutil        (lets the app auto-find the game; optional)
+    pip install psutil        (gives the game's working folder, where FFNx.log is)
     python echos_audio_monitor.py
 """
 import os
@@ -47,9 +45,10 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 
 import blitzball_window   # the Blitzball mini game's own window (its own log; kept apart from FFNx's)
+import ffnx_setup         # the running game, FFNx's sound logging switched on inside it
 import theme              # the app's look: dark (the default) or light, the same in every window
 
-APP_VERSION = "2026.1016"   # release version (YYYY.MMDD); the GitHub build reads it from here
+APP_VERSION = "2026.1019"   # release version (YYYY.MMDD); the GitHub build reads it from here
 APP_TITLE = f"FF8 Audio Monitor v{APP_VERSION} - by AxlRose"
 LOG_NAME  = "FFNx.log"
 
@@ -72,6 +71,9 @@ MARK_FG = "#b0402a"
 HINT_FG = "#666"
 
 OVERLAY_LINES = 20
+BIG_LOG = 32 * 1024 * 1024      # a game's log bigger than this: only its last part is read when the app finds it
+BIG_LOG_TAIL = 2 * 1024 * 1024
+NO_SOUND_HINT = 45.0            # seconds following a game with no sound line: the hint about it
 
 
 def get_exe_dir():
@@ -113,52 +115,44 @@ def chain_text(paths):
     return " > ".join(parts)
 
 
-# The game's own exe: ff8.exe, or ff8_en.exe (and the other language exes) on the
-# 2013 Steam release. Not other tools that happen to be named ff8_*.exe.
-GAME_EXE_RE = re.compile(r'^ff8(_[a-z]{2})?\.exe$', re.I)
-
-
 def find_game_log():
-    """Return (label, log_path, pid) for a running FF8, or (None, None, None)."""
-    try:
-        import psutil
-    except ImportError:
-        return None, None, None
+    """Return (label, log_path, pid) for a running FF8, or (None, None, None). The log is in the game's working
+    folder (where FFNx writes it); the newest game with its FFNx.log there first."""
     first = None
-    for pr in psutil.process_iter(["name", "pid", "exe"]):
-        try:
-            name = pr.info.get("name") or ""
-            exe = pr.info.get("exe")
-            if not exe or not GAME_EXE_RE.match(name):
-                continue
-            log_path = os.path.join(os.path.dirname(exe), LOG_NAME)
-            found = (f"{name} (PID {pr.info['pid']})", log_path, pr.info["pid"])
-            if os.path.exists(log_path):
-                return found            # the game, with its FFNx.log next to it
-            if first is None:
-                first = found           # fallback: the log may not exist yet
-        except Exception:
-            continue
+    for g in ffnx_setup.running_games():
+        log_path = os.path.join(g["folder"], LOG_NAME)
+        found = (f"{g['name']} (PID {g['pid']})", log_path, g["pid"])
+        if os.path.exists(log_path):
+            return found                # the game, with its FFNx.log
+        if first is None:
+            first = found               # fallback: the log may not exist yet
     return first if first else (None, None, None)
 
 
 class Tailer(threading.Thread):
     """Tail FFNx.log, parse audio events, push ('add'|'replace'|'mark', cat, path)."""
 
-    def __init__(self, path, out_queue, from_start=False):
+    def __init__(self, path, out_queue, from_start=False, big_skip=False, not_before=None):
         super().__init__(daemon=True)
         self.path = path
         self.q = out_queue
         self.from_start = from_start
+        self.big_skip = big_skip            # from the start, but a very long log only from its last part
+        self.not_before = not_before        # the game's start: an FFNx.log older than that is the session before
         self.stop = False
+        self.finish = False                 # the game closed: read what it wrote, then stop
+        self.opened = False                 # (the window asks: is the log there yet?)
         self._last = None  # (cat, path, frame)
         self._chain = None  # battle voice names on the current row, or None
         self._last_movie = None  # last prepared movie file, for the play line
 
     def run(self):
-        # the user may attach before launching the game; wait for the file
-        while not self.stop and not os.path.exists(self.path):
-            time.sleep(0.5)
+        # wait for the file; for a game just started, until FFNx has started it afresh (it empties it as the game
+        # starts: until then it still holds the session before)
+        while not self.stop and not self._ready():
+            if self.finish:
+                return
+            time.sleep(0.25)
         if self.stop:
             return
         try:
@@ -166,16 +160,41 @@ class Tailer(threading.Thread):
         except OSError:
             self.q.put(("mark", "", "-- could not open FFNx.log --"))
             return
-        if self.from_start:
-            fh.seek(0)                          # read the whole file (e.g. a saved log)
+        self.opened = True
+        size = self._size()
+        if self.from_start and self.big_skip and size > BIG_LOG:
+            fh.seek(size - BIG_LOG_TAIL)        # a long session: its last part only
+            fh.readline()                       # (from the start of a line)
+            self.q.put(("mark", "", "-- a long log: its earlier lines are left out --"))
+        elif self.from_start:
+            fh.seek(0)                          # read the whole file (this game's session, or a saved log)
         else:
             fh.seek(0, os.SEEK_END)             # live only: skip existing history
         last_size = self._size()
+        part, part_t = "", 0.0                  # (a line read before its end was written: the rest comes next)
         while not self.stop:
             line = fh.readline()
+            if not line:                        # (Wine / Proton's C runtime keeps saying "end of file" until a seek)
+                try:
+                    fh.seek(0, os.SEEK_CUR)
+                    line = fh.readline()
+                except (OSError, ValueError):
+                    pass
             if line:
-                self._parse_line(line)
-                continue
+                if not line.endswith("\n") and not self.finish:
+                    if not part:
+                        part_t = time.time()
+                    part += line
+                else:
+                    self._parse_line(part + line)
+                    part = ""
+                if not part:
+                    continue
+            if part and (self.finish or time.time() - part_t > 1.0):
+                self._parse_line(part)          # (its end never came: a log cut short)
+                part = ""
+            if self.finish:                     # (the game closed and everything it wrote is read)
+                break
             size = self._size()
             if size < last_size:                # game restarted -> log truncated
                 try:
@@ -186,10 +205,17 @@ class Tailer(threading.Thread):
                 self._last = None
                 self._chain = None
                 self._last_movie = None
+                part = ""
                 self.q.put(("mark", "", "-- game restarted --"))
             last_size = size
             time.sleep(0.08)
         fh.close()
+
+    def _ready(self):
+        try:
+            return self.not_before is None or os.path.getmtime(self.path) >= self.not_before - 1
+        except OSError:
+            return False
 
     def _size(self):
         try:
@@ -333,7 +359,11 @@ class App(tk.Tk):
 
         self.q = queue.Queue()
         self.tailer = None
-        self.game_pid = None      # PID of the attached game, or None
+        self.game_pid = None      # PID of the game being followed, or None
+        self.live_game = None     # the newest running game (ffnx_setup's info), followed or not
+        self.saved_log = False    # a saved log is on show (a new game takes over)
+        self.sounds_seen = 0      # sound lines since the game was followed (the hint when none come)
+        self.follow_t0 = None
         self.master_events = []   # list of (cat, path) ; marks stored as ("mark", text)
         self.row_cats = []        # category per visible listbox row (for striping/replace)
 
@@ -348,8 +378,14 @@ class App(tk.Tk):
         theme.listen(self._on_look)         # (the Blitzball window's Dark mode box switches this one too)
         self._hint()
 
+        # the running game, its FFNx sound logging switched on inside it: all by itself (ffnx_setup.py)
+        self.setup_q = queue.Queue()
+        self.setup = ffnx_setup.Setup(self.setup_q)
+        self.setup.start()
+        self._status()
+
         self.after(80, self._drain)
-        self.after(1000, self._watch_game)
+        self.after(1000, self._check_following)
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     # ---------------------------------------------------------------- UI
@@ -361,12 +397,12 @@ class App(tk.Tk):
 
         top = ttk.Frame(self, padding=8)
         top.pack(fill="x")
-        self.attach_btn = ttk.Button(top, text="Attach to FF8", command=self._attach)
-        self.attach_btn.pack(side="left")
-        self.status = tk.StringVar(value="Not attached.")
-        ttk.Label(top, textvariable=self.status).pack(side="left", padx=10)
         ttk.Button(top, text="Locate FFNx.log", command=self._locate).pack(side="right")
         ttk.Button(top, text="Blitzball", command=self._blitzball).pack(side="right", padx=(0, 8))
+        self.back_btn = ttk.Button(top, text="Back to the game", command=self._back_to_game)
+        self.status = tk.StringVar(value="Looking for the game...")
+        self.status_lbl = ttk.Label(top, textvariable=self.status)    # (after the buttons: a long one is cut, not them)
+        self.status_lbl.pack(side="left", fill="x", expand=True)
 
         row = ttk.Frame(self, padding=(8, 0))
         row.pack(fill="x")
@@ -400,8 +436,8 @@ class App(tk.Tk):
         self._menu.add_command(label="Select all", command=self._select_all)
 
         self.hint = ttk.Label(self, padding=(8, 0),
-                              text="Needs trace_music, trace_sfx, trace_voice, trace_ambient, trace_movies = true, "
-                                   "plus use_external_sfx and use_external_music = true (FFNx.toml or mod.xml).",
+                              text="Nothing to press: open the app first, then start the game. The app switches on "
+                                   "FFNx's sound logging inside the game (FFNx.toml isn't changed).",
                               foreground=HINT_FG)
         self.hint.pack(fill="x")
         # the light look is the window's own (as it always was): kept here for switching back from dark
@@ -458,34 +494,94 @@ class App(tk.Tk):
 
     def _hint(self):
         for msg in (
-
-            "In FFNx.toml set these to true so sounds show here:",
-            "    trace_music = true",
-            "    trace_sfx = true",
-            "    trace_voice = true",
-            "    trace_ambient = true",
-            "    trace_movies = true",
+            "Nothing to press: start FF8 (through Junction VIII) and its sounds show here.",
             " ",
-            "For sfx and music you also need (set them in FFNx.toml or in the mod.xml):",
-            "    use_external_sfx = true",
-            "    use_external_music = true",
-            " ",
-            "Then launch FF8 with Junction VIII/FFNx and click Attach to FF8.",
+            "The app switches FFNx's sound logging on inside the game, in its memory only (FFNx.toml",
+            "is never changed, and it's all gone when the game closes):",
+            "    trace_music, trace_sfx, trace_voice, trace_ambient, trace_movies",
+            "and, if they're off, as the game starts (so open the app first, then the game):",
+            "    use_external_music, use_external_sfx",
+            "With those two on, FFNx plays music and sound effects only from .ogg files:",
+            "one with no .ogg is silent. Mods with their own .ogg files set them anyway.",
             " ",
             "Blitzball mini game (Blitzball FF8 mod): click Blitzball, it has its own window.",
         ):
             self._add_mark(msg)
 
-    # ---------------------------------------------------------------- attach
-    def _attach(self):
-        label, path, pid = find_game_log()
-        if not path:
-            self.status.set("FF8 not found. Launch it, or use Locate FFNx.log.")
-            return
-        self.game_pid = pid
-        self._start_tail(path, label, from_start=False)
+    # ---------------------------------------------------------------- the game, followed by itself
+    def _follow(self, g, from_now=False):
+        """A game started (or was running when the app opened): its FFNx.log from this session's first line (a very
+        long one from its last part), then live. from_now: back to it after a saved log, from where it is now."""
+        self.live_game = g
+        self.game_pid = g["pid"]
+        self.saved_log = False
+        self.back_btn.pack_forget()
+        if from_now:
+            self._start_tail(g["log"], from_start=False)
+            self._add_mark(f"-- back to the game: {g['log']}, from now on --")
+        else:
+            young = not g.get("created") or time.time() - g["created"] < 120
+            self._start_tail(g["log"], from_start=True, big_skip=not young, not_before=g.get("created") or None)
+            self._add_mark(f"-- {g['name']} started ({g['kind']}): following {g['log']} --")
+        self.sounds_seen = 0
+        self.follow_t0 = time.time()
+        self._said_no_sound = False
+        self._said_no_log = False
+        self._status()
         if self.live_overlay.get():
             self.overlay.deiconify()            # re-show overlay for the new session
+
+    def _game_gone(self, pid):
+        if self.live_game and self.live_game["pid"] == pid:
+            self.live_game = None
+            self.back_btn.pack_forget()
+        if pid == self.game_pid:
+            self.game_pid = None
+            if self.tailer:
+                self.tailer.finish = True       # (what it wrote last is read, then the reading stops)
+            self.overlay.withdraw()             # (the overlay feels part of the game: it goes with it)
+            self._add_mark("-- game closed: the lines stay; the next start is followed by itself --")
+        self._status()
+
+    def _back_to_game(self):
+        if self.live_game:
+            self._follow(self.live_game, from_now=True)
+
+    def _check_following(self):
+        """Every second: no FFNx.log yet, or no sound line long after the game started: say what to do, once."""
+        if self.game_pid is not None and self.tailer and self.follow_t0:
+            t = time.time() - self.follow_t0
+            if not self.tailer.opened and t > 10 and not self._said_no_log:
+                self._said_no_log = True
+                self._add_mark("-- No new FFNx.log in the game's folder yet: is FFNx installed there? (Junction VIII "
+                               "installs it.) --")
+            if self.tailer.opened and not self.sounds_seen and t > NO_SOUND_HINT and not self._said_no_sound:
+                self._said_no_sound = True
+                self._add_mark("-- No sound in FFNx.log yet: they show as the game plays them (see the lines above "
+                               "about FFNx if there's a problem). --")
+        self.after(1000, self._check_following)
+
+    def _status(self):
+        if self.saved_log:
+            return
+        if self.game_pid is not None and self.live_game:
+            g = self.live_game
+            self.status.set(f"Following {g['name']} ({g['kind']}): {g['folder']}")
+        elif self.tailer is None:
+            self.status.set("Waiting for FF8 to start.")
+        else:
+            self.status.set("Game closed. Waiting for the next start.")
+
+    def _setup_event(self, ev):
+        kind = ev[0]
+        if kind == "note":
+            self._add_mark("-- " + ev[1] + " --")
+        elif kind == "game":
+            g = ev[1]
+            if self.game_pid is None or not self._attached_alive() or g["created"] >= (self.live_game or {}).get("created", 0):
+                self._follow(g)
+        elif kind == "gone":
+            self._game_gone(ev[1])
 
     def _locate(self):
         path = filedialog.askopenfilename(
@@ -493,31 +589,19 @@ class App(tk.Tk):
             filetypes=[("FFNx log", "FFNx.log"), ("Log files", "*.log"), ("All files", "*.*")])
         if path:
             self.game_pid = None                # a picked file may be a closed session
-            self._start_tail(path, os.path.basename(os.path.dirname(path)) or path,
-                             from_start=True)    # read the whole file, list every .ogg
+            self.saved_log = True
+            self._start_tail(path, from_start=True)    # read the whole file, list every .ogg
+            self.status.set(f"Reading a saved log: {path}")
+            if self.live_game:
+                self.back_btn.pack(side="right", padx=(0, 8), before=self.status_lbl)
 
-    def _start_tail(self, path, label, from_start=False):
+    def _start_tail(self, path, from_start=False, big_skip=False, not_before=None):
         if self.tailer:
             self.tailer.stop = True
-        self.tailer = Tailer(path, self.q, from_start=from_start)
+        self.tailer = Tailer(path, self.q, from_start=from_start, big_skip=big_skip, not_before=not_before)
         self.tailer.start()
-        self.status.set(f"Watching: {label}")
-        verb = "reading" if from_start else "tailing"
-        self._add_mark(f"-- attached, {verb} {os.path.basename(path)} --")
-
-    def _watch_game(self):
-        # if the attached game exits, hide the overlay so it feels part of the game
-        if self.game_pid is not None:
-            try:
-                import psutil
-                alive = psutil.pid_exists(self.game_pid)
-            except Exception:
-                alive = True
-            if not alive:
-                self.game_pid = None
-                self.overlay.withdraw()
-                self.status.set("Game closed. Captured lines kept.")
-        self.after(1000, self._watch_game)
+        if self.saved_log or not from_start:
+            self._add_mark(f"-- reading {path} --")
 
     # ---------------------------------------------------------------- copy
     def _copy_selection(self, event=None):
@@ -543,11 +627,22 @@ class App(tk.Tk):
 
     # ---------------------------------------------------------------- events
     def _drain(self):
+        for _ in range(200):
+            try:
+                ev = self.setup_q.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                self._setup_event(ev)
+            except Exception as e:              # (one bad event never stops the window's updates)
+                self._add_mark(f"-- {type(e).__name__}: {e} --")
         changed = False
         try:
             while True:
                 op, cat, path = self.q.get_nowait()
                 changed = True
+                if op != "mark":
+                    self.sounds_seen += 1
                 if op == "add":
                     self.master_events.append((cat, path))
                     if self.enabled.get(cat) and self.enabled[cat].get():
@@ -618,7 +713,7 @@ class App(tk.Tk):
         self._rebuild()
 
     def _attached_alive(self):
-        # true only while attached to a live game (the Attach button sets game_pid)
+        # true only while following a live game (game_pid: the game being followed)
         if self.game_pid is None:
             return False
         try:
@@ -647,8 +742,13 @@ class App(tk.Tk):
 
     def _close(self):
         theme.forget(self._on_look)
+        self.setup.cmds.put(("stop",))
         if self.tailer:
             self.tailer.stop = True
+        try:                                    # (the watcher may be pausing the game for a few ms: it lets it go
+            self.setup.join(2)                  # on before the app ends)
+        except RuntimeError:
+            pass
         self.destroy()
 
 

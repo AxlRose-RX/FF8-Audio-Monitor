@@ -1,22 +1,45 @@
 # FF8 Audio Monitor
 
-![FF8 Audio Monitor running over Final Fantasy VIII, with the in-game overlay on the right](screenshots/echos_audio_monitor.png)
+![FF8 Audio Monitor over a battle in Final Fantasy VIII, with the in-game overlay on the right](screenshots/main_window_battle.png)
 
-FF8 Audio Monitor shows you, live, every audio file Final Fantasy VIII asks for while you play: music, sound effects, voices, ambient sounds and movie audio. It's made mainly for people working on audio mods, like replacing music tracks, SFX or voices (it was built for the EchoS project), so you always know which file is playing and which one you need to replace.
+Shows every audio file Final Fantasy VIII plays, live, while you play.
 
-FFNx already writes all of this to `FFNx.log`, but it's buried in everything else FFNx logs, the file grows fast, and you end up reopening and searching it every time you want to check something. This app does all of that for you. It finds the running game and its log on its own, keeps only the audio lines, skips the repeats and gives each type its own color. You can hide the types you don't need, turn on a small overlay that floats over the game so you don't have to Alt+Tab, copy lines, or open a saved log to see every file it used. It starts in dark mode, easy on the eyes in long sessions: untick **Dark mode** for the light look. Both windows (this one and Blitzball's, below) switch together, and the app remembers your choice.
+Made for audio modders (it was built for EchoS): see which file to replace.
 
-It's a modding tool, not a companion app or a trainer. It only reads `FFNx.log` (and Blitzball's own log, below) and never touches the game or its memory.
+## Features
 
-It has only been tested with FFNx and the Junction VIII mod manager, on Final Fantasy VIII Remastered and the original 2013 Steam version, and those are the only setups it supports.
+- Music, sound effects, voices, ambient sounds and movie audio
+- Nothing to set up or press: open the app, then start the game
+- Finds the game and its `FFNx.log` by itself, wherever it's installed
+- Only the audio lines, one color per type, no back to back repeats
+- Battle voices: every name FFNx tried, on one row, most specific first
+- Hide the types you don't need, copy any line
+- **In-game overlay** floats the latest lines over the game (no Alt+Tab)
+- **Locate FFNx.log** opens a saved log to see every file it used
+- Starts in dark mode: untick **Dark mode** for the light look
+
+## Works with
+
+- FFNx through the Junction VIII mod manager
+- Final Fantasy VIII Remastered and the 2013 Steam version
+- Only these were tested, and they're the only ones supported
+- A modding tool, not a companion app or a trainer
 
 ## Download
 
-Get `echos_audio_monitor.zip` from the [latest release](https://github.com/AxlRose-RX/FF8-Audio-Monitor/releases/latest), unzip it anywhere and run `echos_audio_monitor.exe`. Keep the `_internal` folder next to the .exe.
+- Get `echos_audio_monitor.zip` from the [latest release](https://github.com/AxlRose-RX/FF8-Audio-Monitor/releases/latest)
+- Unzip it anywhere and run `echos_audio_monitor.exe`
+- Keep the `_internal` folder next to the .exe
+
+## How to use
+
+1. Open the app
+2. Start the game through Junction VIII
+3. Play: each sound shows up as it plays
 
 ## FFNx settings
 
-Turn these on in `FFNx.toml` so FFNx logs the audio:
+- Nothing to change in `FFNx.toml`: the app turns these on inside the running game
 
 ```toml
 trace_music = true
@@ -24,32 +47,44 @@ trace_sfx = true
 trace_voice = true
 trace_ambient = true
 trace_movies = true
-```
-
-Music and SFX also need these, in `FFNx.toml` or in your mod's `mod.xml`:
-
-```toml
-use_external_sfx = true
 use_external_music = true
+use_external_sfx = true
 ```
 
-Then start the game through Junction VIII and click **Attach to FF8**.
+- They live only in the game's memory and are gone when it closes
+- Open the app before the game, so it can switch the last two on in time
+- Game started first? The app tells you: start the game again
+- With the last two on, a sound with no .ogg file is silent (FFNx has no fallback)
+- Running the game as administrator? Run the app as administrator too
 
 ## Blitzball mini game
 
-The **Blitzball** button opens a second window for the Blitzball FF8 mod. Blitzball plays its own music, sound effects and crowd, so they never show up in `FFNx.log`. It writes them to its own log instead, and this window reads that log while you play. The main window doesn't change.
+- The **Blitzball** button opens a second window for the Blitzball FF8 mod
+- It lists Blitzball's own music, sound effects and crowd as they play
+- Nothing to turn on (Blitzball FF8 test 80 and newer)
 
-1. In Junction VIII, open **Configure Mod** for Blitzball FF8 and turn on **Log Blitzball's music**, **Log Blitzball's sound effects** and **Log Blitzball's ambience**. Blitzball doesn't need any `FFNx.toml` settings for this.
-2. Start the game and click **Blitzball**. The window finds the game by itself.
+![The Blitzball window over a Blitzball match, listing each sound as it plays](screenshots/blitzball_window.png)
 
-**Now playing** lists every Blitzball sound as it plays: the file, what happened (it played, which take, or it's missing and what plays instead) and when that sound is used. **Sound checklist** lists every sound Blitzball has a place for, with the missing ones in red. Many sounds have more exact ones under them (`status_sleep.ogg` under `status.ogg`, `tackle_venom.ogg` under `tackle.ogg`): open the arrow to see them. They're optional, shown in yellow, and the general sound plays until one is made. Rest the mouse on any line to see every name that sound can have: its takes (`name_1.ogg` to `name_16.ogg`, a different one each time) and the exact ones under it. **Open a saved log** reads `BlitzballFF8.log` from the `BlitzballFF8` folder in the game folder (or `BlitzballFF8.prev.log`, the game before), and **Save this list** writes everything to a text file. Its **Dark mode** box is the same one as the main window's.
+- **Now playing**: each sound, what happened, and when that sound is used
+- **Sound checklist**: every sound Blitzball has a place for
+- Red: a sound still missing
+- Yellow: an optional exact sound, like `tackle_venom.ogg` under `tackle.ogg`
+- The general sound plays until the exact one is made
+- Open the arrow on a line to see its exact sounds
+- Rest the mouse on a line to see every name that sound can have
+- Takes: `pass_1.ogg` to `pass_16.ogg`, a different one each time
+- **Open a saved log**: reads `BlitzballFF8\BlitzballFF8.log` in the game folder
+- `BlitzballFF8.prev.log` next to it is the game before
+- **Save this list**: writes everything to a text file
 
 ## Build it yourself
 
-Download **Source code (zip)** from any release, install [Python 3](https://www.python.org/downloads/) and double-click `build_exeonedir.bat`. It installs everything it needs and builds the app into `dist\echos_audio_monitor`.
+1. Download **Source code (zip)** from any release
+2. Install [Python 3](https://www.python.org/downloads/) (3.8 or newer)
+3. Double-click `build_exeonedir.bat` (it installs everything it needs)
+4. Find the app in `dist\echos_audio_monitor`
 
 ## Credits
 
-Made by AxlRose. Claude (Anthropic's AI) helped write the code.
-
-Questions and bug reports: [Tsunamods Discord](https://discord.com/invite/7Rsvsewghz)
+- Made by AxlRose, with Claude (Anthropic's AI) helping write the code
+- Questions and bug reports: [Tsunamods Discord](https://discord.com/invite/7Rsvsewghz)
